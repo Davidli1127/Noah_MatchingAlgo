@@ -1,59 +1,64 @@
-def match_student(application_choice, academic_percentage, gaokao_score=None, ielts_score=None, 
-                  toefl_score=None, det_score=None, language_pass=False, has_high_school_cert=False, 
-                  has_international_school_experience=False, budget_per_year=0):
+def match_student(**kwargs):
     """
     根据学生的数据匹配大学或国际学校。
     
     参数:
-    - application_choice: "大学" 或 "国际学校"
-    - academic_percentage: 学术成绩百分比
-    - gaokao_score: 高考成绩 (如果没有则为None)
-    - ielts_score: 雅思成绩 (如果没有则为None)
-    - toefl_score: 托福成绩 (如果没有则为None)
-    - det_score: DET成绩 (如果没有则为None)
-    - language_pass: 学生是否通过学校语言测试
-    - has_high_school_cert: 学生是否拥有高中毕业证书
-    - has_international_school_experience: 学生是否有国际学校学习经验
-    - budget_per_year: 年度教育预算(单位:SGD)
+    **kwargs: 关键字参数
+        - application_choice: "大学" 或 "国际学校"
+        - academic_percentage: 学术成绩百分比
+        - gaokao_score: 高考成绩 (如果没有则为None)
+        - ielts_score: 雅思成绩 (如果没有则为None)
+        - toefl_score: 托福成绩 (如果没有则为None)
+        - det_score: DET成绩 (如果没有则为None)
+        - language_pass: 学生是否通过学校语言测试
+        - has_high_school_cert: 学生是否拥有高中毕业证书
+        - has_international_school_experience: 学生是否有国际学校学习经验
+        - budget_per_year: 年度教育预算(单位:SGD)
     
     返回:
     - 包含匹配结果的字典
     """
     result = {}
     
+    application_choice = kwargs.get('application_choice')
+    
     if application_choice == "大学":
-        university_result = match_universities(
-            academic_percentage, gaokao_score, ielts_score, toefl_score, 
-            det_score, language_pass, has_high_school_cert
-        )
+        university_result = match_universities(**kwargs)
         result.update(university_result)
     
     elif application_choice == "国际学校":
-        matched_schools = match_international_schools(
-            academic_percentage, has_international_school_experience, budget_per_year
-        )
+        matched_schools = match_international_schools(**kwargs)
         result["matched_international_schools"] = matched_schools
     
     return result
 
 
-def match_universities(academic_percentage, gaokao_score, ielts_score, toefl_score, det_score, language_pass, has_high_school_cert):
+def match_universities(**kwargs):
     """
     根据学生的学术成绩和语言能力匹配大学。
     
     参数:
-    - academic_percentage: 学术成绩百分比
-    - gaokao_score: 高考成绩
-    - ielts_score: 雅思成绩 (如果没有则为None)
-    - toefl_score: 托福成绩 (如果没有则为None)
-    - det_score: DET成绩 (如果没有则为None)
-    - language_pass: 学生是否通过学校语言测试
-    - has_high_school_cert: 学生是否拥有高中毕业证书
+    **kwargs: 关键字参数
+        - academic_percentage: 学术成绩百分比
+        - gaokao_score: 高考成绩
+        - ielts_score: 雅思成绩 (如果没有则为None)
+        - toefl_score: 托福成绩 (如果没有则为None)
+        - det_score: DET成绩 (如果没有则为None)
+        - language_pass: 学生是否通过学校语言测试
+        - has_high_school_cert: 学生是否拥有高中毕业证书
     
     返回:
     - 包含匹配结果的字典
     """
     result = {}
+    
+    academic_percentage = kwargs.get('academic_percentage', 0)
+    gaokao_score = kwargs.get('gaokao_score')
+    ielts_score = kwargs.get('ielts_score')
+    toefl_score = kwargs.get('toefl_score')
+    det_score = kwargs.get('det_score')
+    language_pass = kwargs.get('language_pass', False)
+    has_high_school_cert = kwargs.get('has_high_school_cert', False)
     
     # 检查第一个条件：顶尖公立大学
     if academic_percentage > 80 or (gaokao_score is not None and gaokao_score > 600):
@@ -75,7 +80,7 @@ def match_universities(academic_percentage, gaokao_score, ielts_score, toefl_sco
     # 第三级别私立大学
     if 70 <= academic_percentage < 75 or (gaokao_score is not None and 450 <= gaokao_score < 520):
         matched_universities = ["英国伯明翰大学", "澳大利亚皇家墨尔本理工大学", "爱尔兰都柏林大学"]
-        path_to_university = determine_path_for_private_university(ielts_score, toefl_score, det_score, language_pass, has_high_school_cert)
+        path_to_university = determine_path_for_private_university(**kwargs)
         result["matched_universities"] = matched_universities
         result["path_to_university"] = path_to_university
         return result
@@ -83,7 +88,7 @@ def match_universities(academic_percentage, gaokao_score, ielts_score, toefl_sco
     # 第四级别私立大学
     if 65 <= academic_percentage < 70 or (gaokao_score is not None and 400 <= gaokao_score < 450):
         matched_universities = ["澳大利亚伍伦贡大学", "澳洲纽卡斯尔大学", "澳大利亚科廷大学", "新西兰梅西大学", "乐卓博大学"]
-        path_to_university = determine_path_for_private_university(ielts_score, toefl_score, det_score, language_pass, has_high_school_cert)
+        path_to_university = determine_path_for_private_university(**kwargs)
         result["matched_universities"] = matched_universities
         result["path_to_university"] = path_to_university
         return result
@@ -91,7 +96,7 @@ def match_universities(academic_percentage, gaokao_score, ielts_score, toefl_sco
     # 第五级别私立大学
     if 60 <= academic_percentage < 65 or (gaokao_score is not None and 350 <= gaokao_score < 400):
         matched_universities = ["英国考文垂大学", "澳大利亚莫道克大学", "英国诺比森亚大学", "英国斯特灵大学"]
-        path_to_university = determine_path_for_private_university(ielts_score, toefl_score, det_score, language_pass, has_high_school_cert)
+        path_to_university = determine_path_for_private_university(**kwargs)
         result["matched_universities"] = matched_universities
         result["path_to_university"] = path_to_university
         return result
@@ -101,20 +106,27 @@ def match_universities(academic_percentage, gaokao_score, ielts_score, toefl_sco
     return result
 
 
-def determine_path_for_private_university(ielts_score, toefl_score, det_score, language_pass, has_high_school_cert):
+def determine_path_for_private_university(**kwargs):
     """
     根据语言能力和高中毕业情况确定申请私立大学的学生的路径。
     
     参数:
-    - ielts_score: 雅思成绩 (如果没有则为None)
-    - toefl_score: 托福成绩 (如果没有则为None)
-    - det_score: DET成绩 (如果没有则为None)
-    - language_pass: 学生是否通过学校语言测试
-    - has_high_school_cert: 学生是否拥有高中毕业证书
+    **kwargs: 关键字参数
+        - ielts_score: 雅思成绩 (如果没有则为None)
+        - toefl_score: 托福成绩 (如果没有则为None)
+        - det_score: DET成绩 (如果没有则为None)
+        - language_pass: 学生是否通过学校语言测试
+        - has_high_school_cert: 学生是否拥有高中毕业证书
     
     返回:
     - 学生的进入大学的路径
     """
+    ielts_score = kwargs.get('ielts_score')
+    toefl_score = kwargs.get('toefl_score')
+    det_score = kwargs.get('det_score')
+    language_pass = kwargs.get('language_pass', False)
+    has_high_school_cert = kwargs.get('has_high_school_cert', False)
+    
     # 条件1：语言不达标 + 无高中毕业证书
     if ((ielts_score is not None and ielts_score < 5.5) or 
         (toefl_score is not None and toefl_score < 59) or 
@@ -146,18 +158,23 @@ def determine_path_for_private_university(ielts_score, toefl_score, det_score, l
     return None
 
 
-def match_international_schools(academic_percentage, has_international_school_experience, budget_per_year):
+def match_international_schools(**kwargs):
     """
     根据学生的学术成绩、国际学校经验和预算匹配国际学校。
     
     参数:
-    - academic_percentage: 学术成绩百分比
-    - has_international_school_experience: 学生是否有国际学校学习经验
-    - budget_per_year: 年度教育预算(单位:SGD)
+    **kwargs: 关键字参数
+        - academic_percentage: 学术成绩百分比
+        - has_international_school_experience: 学生是否有国际学校学习经验
+        - budget_per_year: 年度教育预算(单位:SGD)
     
     返回:
     - 匹配的国际学校列表
     """
+    academic_percentage = kwargs.get('academic_percentage', 0)
+    has_international_school_experience = kwargs.get('has_international_school_experience', False)
+    budget_per_year = kwargs.get('budget_per_year', 0)
+    
     # 条件1：高学术成绩或有国际学校经验 + 高预算
     if (academic_percentage > 70 or has_international_school_experience) and budget_per_year >= 100000:
         return ["UWC", "东陵信托国际学校", "美国国际学校", "德威国际学校", "北伦敦伦敦国际学校"]
