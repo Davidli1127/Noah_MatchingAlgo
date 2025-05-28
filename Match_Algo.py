@@ -159,7 +159,7 @@ def match_international_schools(academic_percentage, has_international_school_ex
     - 匹配的国际学校列表
     """
     # 条件1：高学术成绩或有国际学校经验 + 高预算
-    if (academic_percentage > 70 or has_international_school_experience) and budget_per_year > 100000:
+    if (academic_percentage > 70 or has_international_school_experience) and budget_per_year >= 100000:
         return ["UWC", "东陵信托国际学校", "美国国际学校", "德威国际学校", "北伦敦伦敦国际学校"]
     
     # 条件2：中等学术成绩 + 中等预算
