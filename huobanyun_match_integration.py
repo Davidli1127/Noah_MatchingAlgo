@@ -11,13 +11,19 @@ SPACE_ID = "4000000007763686"  # 空间ID
 # 表格配置 (替换为实际的表格ID)
 STUDENT_TABLE_1_ID = "2100000065598053"  # 第一个学生表ID
 STUDENT_TABLE_2_ID = "2100000065736402"  # 第二个学生表ID
-UNIVERSITY_TABLE_ID = "2100000065741189","2100000065744137", "2100000065744831"  # 大学表ID
+
+# 大学表格配置 - 修改为三个不同类型的大学表
+UNIVERSITY_TABLES = {
+    "private": "2100000065741189",       # 私立大学数据表格
+    "public_graduate": "2100000065744137", # 公立大学硕博阶段数据表格
+    "public_undergrad": "2100000065744831" # 公立大学本科数据表格
+}
+
 INTERNATIONAL_SCHOOL_TABLE_ID = "intl_school_table_id"  # 国际学校表ID
 MATCH_RESULT_TABLE_ID = "match_result_table_id"  # 存放匹配结果的表ID
 
 class HuobanyunAPI:
-    def __init__(self, app_id, app_secret):
-        self.app_id = app_id
+    def __init__(self, app_secret):
         self.app_secret = app_secret
         self.token = None
         self.token_expires = 0
@@ -30,7 +36,7 @@ class HuobanyunAPI:
 
         url = f"{API_BASE_URL}/token/get"
         payload = {
-            "app_id": self.app_id,
+            # 如果仅使用app_secret的认证方式，根据API要求修改以下参数
             "app_secret": self.app_secret
         }
         
@@ -238,9 +244,86 @@ def map_student_fields(item, field_mappings, table_type):
         print(f"映射学生字段时出错: {e}")
         return None
 
+def get_university_data(huoban_api):
+    """
+    从三个不同的大学表获取大学数据
+    返回格式化的大学数据，包括类型信息
+    """
+    university_data = {
+        "private": [],
+        "public_graduate": [],
+        "public_undergrad": []
+    }
+    
+    # 为每个表定义字段映射
+    university_field_mapping = {
+        "name": "大学名称",
+        "admission_requirements": "入学要求",
+        "tuition_fees": "学费",
+        # 根据需要添加更多字段
+    }
+    
+    # 获取私立大学数据
+    private_table_id = UNIVERSITY_TABLES["private"]
+    private_field_mappings = get_field_mappings(huoban_api, private_table_id, university_field_mapping)
+    private_universities = huoban_api.get_table_items(private_table_id)
+    for uni in private_universities.get("items", []):
+        uni_data = map_university_fields(uni, private_field_mappings)
+        if uni_data:
+            uni_data["type"] = "private"
+            university_data["private"].append(uni_data)
+    
+    # 获取公立大学硕博数据
+    grad_table_id = UNIVERSITY_TABLES["public_graduate"]
+    grad_field_mappings = get_field_mappings(huoban_api, grad_table_id, university_field_mapping)
+    grad_universities = huoban_api.get_table_items(grad_table_id)
+    for uni in grad_universities.get("items", []):
+        uni_data = map_university_fields(uni, grad_field_mappings)
+        if uni_data:
+            uni_data["type"] = "public_graduate"
+            university_data["public_graduate"].append(uni_data)
+    
+    # 获取公立大学本科数据
+    undergrad_table_id = UNIVERSITY_TABLES["public_undergrad"]
+    undergrad_field_mappings = get_field_mappings(huoban_api, undergrad_table_id, university_field_mapping)
+    undergrad_universities = huoban_api.get_table_items(undergrad_table_id)
+    for uni in undergrad_universities.get("items", []):
+        uni_data = map_university_fields(uni, undergrad_field_mappings)
+        if uni_data:
+            uni_data["type"] = "public_undergrad"
+            university_data["public_undergrad"].append(uni_data)
+    
+    return university_data
+
+def map_university_fields(item, field_mappings):
+    """
+    从原始数据项映射大学字段
+    使用动态获取的字段ID
+    """
+    data = {}
+    fields = item.get("fields", {})
+    
+    try:
+        # 映射基本字段
+        for key, field_id in field_mappings.items():
+            if field_id in fields:
+                data[key] = fields[field_id]
+        
+        # 添加大学ID以便需要时引用
+        data["university_id"] = item.get("item_id")
+        
+        return data
+        
+    except Exception as e:
+        print(f"映射大学字段时出错: {e}")
+        return None
+
 def match_all_students(huoban_api, students):
     """为所有学生执行匹配"""
     results = []
+    
+    # 获取大学数据，只需获取一次
+    university_data = get_university_data(huoban_api)
     
     for student in students:
         # 创建用于匹配的参数字典
@@ -256,6 +339,27 @@ def match_all_students(huoban_api, students):
             'has_international_school_experience': student.get('has_international_school_experience', False),
             'budget_per_year': student.get('budget_per_year', 0)
         }
+        
+        # 根据申请类型选择合适的大学数据集
+        application_type = student.get('application_choice', '').lower()
+        
+        # 添加大学数据到匹配参数
+        if 'undergraduate' in application_type or 'bachelor' in application_type:
+            match_params['university_data'] = {
+                'private': university_data['private'],
+                'public': university_data['public_undergrad']
+            }
+        elif 'graduate' in application_type or 'master' in application_type or 'doctoral' in application_type or 'phd' in application_type:
+            match_params['university_data'] = {
+                'private': university_data['private'],
+                'public': university_data['public_graduate']
+            }
+        else:
+            # 如果申请类型不明确，使用所有大学数据
+            match_params['university_data'] = {
+                'private': university_data['private'],
+                'public': university_data['public_undergrad'] + university_data['public_graduate']
+            }
         
         # 调用匹配算法
         match_result = match_student(**match_params)
@@ -316,8 +420,8 @@ def save_match_result(huoban_api, result_entry):
         print(f"保存匹配结果时发生错误: {e}")
 
 def main():
-    # 初始化API客户端
-    huoban_api = HuobanyunAPI(APP_ID, APP_SECRET)
+    # 初始化API客户端，移除了APP_ID参数
+    huoban_api = HuobanyunAPI(APP_SECRET)
     
     try:
         # 获取学生数据
