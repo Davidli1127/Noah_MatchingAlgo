@@ -35,26 +35,31 @@ class HuobanyunAPI:
             return self.token
 
         url = f"{API_BASE_URL}/token/get"
+        headers = {
+            "Content-Type": "application/json"
+        }
         payload = {
-            # 如果仅使用app_secret的认证方式，根据API要求修改以下参数
             "app_secret": self.app_secret
         }
         
-        response = requests.post(url, json=payload)
+        response = requests.post(url, headers=headers, json=payload)
         if response.status_code == 200:
             data = response.json()
-            self.token = data.get("data", {}).get("token")
-            # 令牌有效期通常在响应中提供，这里假设为2小时
-            self.token_expires = time.time() + 7200
-            return self.token
+            if data.get("code") == 0:  # 确保请求成功
+                self.token = data.get("data", {}).get("token")
+                # 令牌有效期通常在响应中提供，这里假设为2小时
+                self.token_expires = time.time() + 7200
+                return self.token
+            else:
+                raise Exception(f"获取令牌失败: {data.get('message', 'Unknown error')}")
         else:
-            raise Exception(f"获取令牌失败: {response.text}")
+            raise Exception(f"获取令牌失败: {response.status_code} - {response.text}")
 
     def api_request(self, endpoint, payload=None):
-        """发送API请求 - 更新为使用POST请求和Open-Authorization头"""
+        """发送API请求 - 更新为使用POST请求和Bearer认证"""
         token = self.get_token()
         headers = {
-            "Open-Authorization": token,
+            "Open-Authorization": f"Bearer {token}",
             "Content-Type": "application/json"
         }
         
@@ -65,11 +70,15 @@ class HuobanyunAPI:
             payload = {}
             
         response = requests.post(url, headers=headers, json=payload)
-            
+        
         if response.status_code == 200:
-            return response.json().get("data", {})
+            data = response.json()
+            if data.get("code") == 0:  # 确保业务逻辑成功
+                return data.get("data", {})
+            else:
+                raise Exception(f"API业务逻辑错误: {data.get('message', 'Unknown error')}")
         else:
-            raise Exception(f"API请求失败: {response.text}")
+            raise Exception(f"API请求失败: {response.status_code} - {response.text}")
 
     def get_table_list(self):
         """获取表格列表"""
@@ -420,7 +429,7 @@ def save_match_result(huoban_api, result_entry):
         print(f"保存匹配结果时发生错误: {e}")
 
 def main():
-    # 初始化API客户端，移除了APP_ID参数
+    # 初始化API客户端
     huoban_api = HuobanyunAPI(APP_SECRET)
     
     try:
