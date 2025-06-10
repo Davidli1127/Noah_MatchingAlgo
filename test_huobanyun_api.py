@@ -109,3 +109,4 @@ if __name__ == "__main__":
     
     # 然后详细测试一个表格的数据
     test_single_table_items(UNIVERSITY_TABLES["private"])
+
