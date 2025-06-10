@@ -20,7 +20,7 @@ UNIVERSITY_TABLES = {
 }
 
 INTERNATIONAL_SCHOOL_TABLE_ID = "intl_school_table_id"  # 国际学校表ID
-MATCH_RESULT_TABLE_ID = "match_result_table_id"  # 存放匹配结果的表ID
+MATCH_RESULT_TABLE_ID = "2100000066645204"  # 存放匹配结果的表ID
 
 class HuobanyunAPI:
     def __init__(self, app_secret):
@@ -176,7 +176,7 @@ def get_all_students(huoban_api):
     # 字段名称映射 - 这些是实际的字段名称，将用于查询字段ID
     field_mapping_names = {
         "application_choice": "申请类型",
-        "academic_percentage": "学术成绩百分比",
+        "academic_percentage": "学术成绩",
         "gaokao_score": "高考成绩",
         "ielts_score": "雅思成绩",
         "toefl_score": "托福成绩",
