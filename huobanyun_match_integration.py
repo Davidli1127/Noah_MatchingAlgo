@@ -12,7 +12,7 @@ SPACE_ID = "4000000007763686"  # 空间ID
 STUDENT_TABLE_1_ID = "2100000065598053"  # 第一个学生表ID
 STUDENT_TABLE_2_ID = "2100000065736402"  # 第二个学生表ID
 
-# 大学表格配置 - 修改为三个不同类型的大学表
+# 大学表格配置 - 三个不同类型的大学表
 UNIVERSITY_TABLES = {
     "private": "2100000065741189",       # 私立大学数据表格
     "public_graduate": "2100000065744137", # 公立大学硕博阶段数据表格
@@ -25,61 +25,37 @@ MATCH_RESULT_TABLE_ID = "2100000066645204"  # 存放匹配结果的表ID
 class HuobanyunAPI:
     def __init__(self, app_secret):
         self.app_secret = app_secret
-        self.token = None
-        self.token_expires = 0
         self.field_configurations = {}  # 缓存表格字段配置
 
-    def get_token(self):
-        """获取访问令牌"""
-        if self.token and time.time() < self.token_expires:
-            return self.token
-
-        url = f"{API_BASE_URL}/token/get"
-        headers = {
+    def get_headers(self):
+        """获取API请求的标准头部"""
+        return {
+            "Open-Authorization": f"Bearer {self.app_secret}",
             "Content-Type": "application/json"
         }
-        payload = {
-            "app_secret": self.app_secret
-        }
-        
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("code") == 0:  # 确保请求成功
-                self.token = data.get("data", {}).get("token")
-                # 令牌有效期通常在响应中提供，这里假设为2小时
-                self.token_expires = time.time() + 7200
-                return self.token
-            else:
-                raise Exception(f"获取令牌失败: {data.get('message', 'Unknown error')}")
-        else:
-            raise Exception(f"获取令牌失败: {response.status_code} - {response.text}")
 
     def api_request(self, endpoint, payload=None):
-        """发送API请求 - 更新为使用POST请求和Bearer认证"""
-        token = self.get_token()
-        headers = {
-            "Open-Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-        
+        """发送API请求 - 根据文档，所有请求都是POST"""
+        headers = self.get_headers()
         url = f"{API_BASE_URL}/{endpoint}"
         
-        # 所有请求都是使用POST
         if payload is None:
             payload = {}
-            
-        response = requests.post(url, headers=headers, json=payload)
         
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("code") == 0:  # 确保业务逻辑成功
-                return data.get("data", {})
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("code") == 0:  # 确保业务逻辑成功
+                    return data.get("data", {})
+                else:
+                    raise Exception(f"API业务逻辑错误: {data.get('message', 'Unknown error')}")
             else:
-                raise Exception(f"API业务逻辑错误: {data.get('message', 'Unknown error')}")
-        else:
-            raise Exception(f"API请求失败: {response.status_code} - {response.text}")
-
+                raise Exception(f"API请求失败: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"请求异常: {e}")
+    
     def get_table_list(self):
         """获取表格列表"""
         endpoint = "table/list"
@@ -88,25 +64,25 @@ class HuobanyunAPI:
         }
         return self.api_request(endpoint, payload)
 
-    def get_table_details(self, table_id=None):
+    def get_table_details(self, table_id):
         """获取表格详细信息和字段配置"""
-        endpoint = "table/"
-        payload = {}
-        if table_id:
-            payload["table_id"] = table_id
+        endpoint = "table/get"  # 修正为正确的端点
+        payload = {
+            "table_id": table_id
+        }
         return self.api_request(endpoint, payload)
 
     def get_field_configurations(self, table_id):
         """获取并缓存表格的字段配置"""
         if table_id not in self.field_configurations:
             table_details = self.get_table_details(table_id)
-            # 假设字段配置在响应的fields属性中
+            # 根据API文档，字段配置在fields属性中
             self.field_configurations[table_id] = table_details.get("fields", [])
         return self.field_configurations[table_id]
 
     def get_table_item(self, item_id):
         """获取单个数据项"""
-        endpoint = "item/"
+        endpoint = "item/get"  # 修正为正确的端点
         payload = {
             "item_id": item_id
         }
@@ -139,7 +115,7 @@ class HuobanyunAPI:
     
     def create_item(self, table_id, fields):
         """在表格中创建新数据项"""
-        endpoint = "item/create"
+        endpoint = "item/create"  # 保持原来的端点
         payload = {
             "table_id": table_id,
             "fields": fields
@@ -154,6 +130,7 @@ class HuobanyunAPI:
             "fields": fields
         }
         return self.api_request(endpoint, payload)
+
 
 def get_field_mappings(huoban_api, table_id, field_mapping_names):
     """
@@ -488,6 +465,8 @@ def main():
     huoban_api = HuobanyunAPI(APP_SECRET)
     
     try:
+        print("开始执行学生匹配流程...")
+        
         # 获取学生数据
         students = get_all_students(huoban_api)
         print(f"共获取 {len(students)} 名学生记录")
@@ -496,10 +475,13 @@ def main():
         match_results = match_all_students(huoban_api, students)
         print(f"已完成 {len(match_results)} 名学生的匹配")
         
+        print("匹配流程执行完成！")
         return match_results
         
     except Exception as e:
         print(f"执行过程中发生错误: {e}")
+        import traceback
+        traceback.print_exc()  # 打印详细堆栈跟踪
         return None
 
 if __name__ == "__main__":
