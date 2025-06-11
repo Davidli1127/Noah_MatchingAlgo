@@ -19,7 +19,7 @@ UNIVERSITY_TABLES = {
     "public_undergrad": "2100000065744831" # 公立大学本科数据表格
 }
 
-INTERNATIONAL_SCHOOL_TABLE_ID = "intl_school_table_id"  # 国际学校表ID
+INTERNATIONAL_SCHOOL_TABLE_ID = "2100000066695624"  # 国际学校表ID
 MATCH_RESULT_TABLE_ID = "2100000066645204"  # 存放匹配结果的表ID
 
 class HuobanyunAPI:
@@ -304,6 +304,75 @@ def map_university_fields(item, field_mappings):
         print(f"映射大学字段时出错: {e}")
         return None
     
+def get_international_school_data(huoban_api):
+    """
+    从国际学校表获取学校数据
+    返回格式化的国际学校数据列表
+    """
+    schools = []
+    
+    # 为国际学校表定义字段映射
+    school_field_mapping = {
+        "name": "学校名称",
+        "admission_requirements": "入学要求",
+        "tuition_fees": "学费",
+        "curriculum": "课程体系",
+        "language_requirements": "语言要求",
+        "location": "地理位置",
+        "school_type": "学校类型",
+        "university_placement": "大学录取情况"
+        # 根据需要添加更多字段
+    }
+    
+    # 获取国际学校表的字段ID映射
+    field_mappings = get_field_mappings(huoban_api, INTERNATIONAL_SCHOOL_TABLE_ID, school_field_mapping)
+    
+    # 获取国际学校数据
+    schools_response = huoban_api.get_table_items(INTERNATIONAL_SCHOOL_TABLE_ID)
+    for school in schools_response.get("items", []):
+        school_data = map_intl_school_fields(school, field_mappings)
+        if school_data:  # 确保数据有效
+            schools.append(school_data)
+    
+    print(f"从国际学校表获取了 {len(schools)} 所学校")
+    return schools
+
+def map_intl_school_fields(item, field_mappings):
+    """
+    从原始数据项映射国际学校字段
+    使用动态获取的字段ID
+    """
+    data = {}
+    fields = item.get("fields", {})
+    
+    try:
+        # 映射基本字段
+        for key, field_id in field_mappings.items():
+            if field_id in fields:
+                data[key] = fields[field_id]
+        
+        # 确保学校名称存在
+        if "name" not in data or not data["name"]:
+            print("国际学校记录缺少必要的学校名称")
+            return None
+        
+        # 添加学校ID以便需要时引用
+        data["school_id"] = item.get("item_id")
+        
+        # 处理特定字段（如有必要）
+        # 例如，确保学费为数值类型
+        if "tuition_fees" in data and data["tuition_fees"] is not None:
+            try:
+                data["tuition_fees"] = float(data["tuition_fees"])
+            except ValueError:
+                print(f"警告：学校 '{data.get('name')}' 的学费无法转换为数字")
+        
+        return data
+        
+    except Exception as e:
+        print(f"映射国际学校字段时出错: {e}")
+        return None
+    
 def update_match_result(huoban_api, result_entry):
     """
     检查是否已存在匹配结果，如果存在则更新，否则创建新记录
@@ -407,6 +476,9 @@ def match_all_students(huoban_api, students):
     # 获取大学数据，只需获取一次
     university_data = get_university_data(huoban_api)
     
+    # 获取国际学校数据，只需获取一次
+    international_schools = get_international_school_data(huoban_api)
+    
     for student in students:
         # 创建用于匹配的参数字典
         match_params = {
@@ -419,7 +491,8 @@ def match_all_students(huoban_api, students):
             'language_pass': student.get('language_pass', False),
             'has_high_school_cert': student.get('has_high_school_cert', False),
             'has_international_school_experience': student.get('has_international_school_experience', False),
-            'budget_per_year': student.get('budget_per_year', 0)
+            'budget_per_year': student.get('budget_per_year', 0),
+            'international_schools': international_schools  # 添加国际学校数据
         }
         
         # 根据申请类型选择合适的大学数据集
