@@ -92,6 +92,41 @@ class HuobanyunAPI:
         except Exception as e:
             print(f"获取字段配置时发生错误 (表格ID: {table_id}): {e}")
             return []  # 返回空列表以避免进一步的错误
+    
+    def get_table_items(self, table_id, limit=None, filter_conditions=None):
+        """获取表格中的项目，支持过滤和分页"""
+        endpoint = "item/list"
+        payload = {
+            "table_id": table_id
+        }
+        
+        # 添加分页限制（如果提供）
+        if limit is not None:
+            payload["limit"] = limit
+        
+        # 添加过滤条件（如果提供）
+        if filter_conditions is not None:
+            payload["filter"] = filter_conditions
+        
+        return self.api_request(endpoint, payload)
+
+    def create_item(self, table_id, fields):
+        """创建新的表格项目"""
+        endpoint = "item/create"
+        payload = {
+            "table_id": table_id,
+            "fields": fields
+        }
+        return self.api_request(endpoint, payload)
+
+    def update_item(self, item_id, fields):
+        """更新已有的表格项目"""
+        endpoint = "item/update"
+        payload = {
+            "item_id": item_id,
+            "fields": fields
+        }
+        return self.api_request(endpoint, payload)
 
 def get_field_mappings(huoban_api, table_id, field_mapping_names):
     """根据字段名称获取对应的字段ID"""
