@@ -3,12 +3,12 @@ import json
 import time
 from Match_Algo import match_student
 
-# Huobanyun API Configuration - Updated to OpenAPI V1
+# Huobanyun API Configuration
 API_BASE_URL = "https://api.huoban.com/openapi/v1"
 APP_SECRET = "wPCoGnaYtQrNXoWv3I0VOrKnYQpOU8XNSyr5OzuJ"  # API密钥
 SPACE_ID = "4000000007763686"  # 空间ID
 
-# 表格配置 (替换为实际的表格ID)
+# 表格配置
 STUDENT_TABLE_1_ID = "2100000065598053"  # 第一个学生表ID
 STUDENT_TABLE_2_ID = "2100000065736402"  # 第二个学生表ID
 
@@ -28,105 +28,119 @@ class HuobanyunAPI:
         self.field_configurations = {}  # 缓存表格字段配置
 
     def get_headers(self):
-        """获取API请求的标准头部"""
+        """获取API请求头部"""
         return {
             "Open-Authorization": f"Bearer {self.app_secret}",
             "Content-Type": "application/json"
         }
 
-    def api_request(self, endpoint, payload=None):
-        """发送API请求 - 根据文档，所有请求都是POST"""
+    def api_request(self, method, url, payload=None, debug=False):
+        """发送API请求"""
         headers = self.get_headers()
-        url = f"{API_BASE_URL}/{endpoint}"
         
         if payload is None:
             payload = {}
         
+        if debug:
+            print(f"请求: {method} {url}")
+            print(f"载荷: {json.dumps(payload)}")
+        
         try:
-            response = requests.post(url, headers=headers, json=payload)
+            if method.upper() == "GET":
+                response = requests.get(url, headers=headers, params=payload)
+            elif method.upper() == "POST":
+                response = requests.post(url, headers=headers, json=payload)
+            elif method.upper() == "PUT":
+                response = requests.put(url, headers=headers, json=payload)
+            else:
+                raise ValueError(f"不支持的请求方法: {method}")
+            
+            if debug:
+                print(f"状态码: {response.status_code}")
+                print(f"响应: {response.text[:200]}{'...' if len(response.text) > 200 else ''}")
             
             if response.status_code == 200:
                 data = response.json()
                 if data.get("code") == 0:  # 确保业务逻辑成功
                     return data.get("data", {})  # 直接返回 data 部分
                 else:
-                    raise Exception(f"API业务逻辑错误: {data.get('message', 'Unknown error')}")
+                    error_msg = f"API业务逻辑错误: {data.get('message', 'Unknown error')}"
+                    if debug:
+                        print(f"错误: {error_msg}")
+                    raise Exception(error_msg)
             else:
-                raise Exception(f"API请求失败: {response.status_code} - {response.text}")
+                error_msg = f"API请求失败: {response.status_code} - {response.text}"
+                if debug:
+                    print(f"错误: {error_msg}")
+                raise Exception(error_msg)
         except requests.exceptions.RequestException as e:
+            if debug:
+                print(f"请求异常: {e}")
             raise Exception(f"请求异常: {e}")
     
     def get_table_list(self):
         """获取表格列表"""
-        endpoint = "table/list"
+        url = f"{API_BASE_URL}/table/list"
         payload = {
             "space_id": SPACE_ID
         }
-        response = self.api_request(endpoint, payload)
-        
-        # 确保正确访问嵌套的 tables 数组
-        if isinstance(response, dict) and "tables" in response:
-            return response["tables"]
-        elif isinstance(response, list):
-            return response
-        else:
-            print(f"警告: 表格响应格式异常: {type(response)}")
-            return []
-
+        return self.api_request("POST", url, payload)
+    
     def get_table_details(self, table_id):
-        """获取表格详细信息和字段配置"""
-        endpoint = "table/get"
-        payload = {
-            "table_id": table_id
-        }
-        return self.api_request(endpoint, payload)
+        """获取表格详细信息"""
+        # 根据官方示例，URL是 /table/ 后面直接跟ID
+        url = f"{API_BASE_URL}/table/{table_id}"
+        return self.api_request("POST", url, {})
     
     def get_field_configurations(self, table_id):
         """获取并缓存表格的字段配置"""
         try:
             if table_id not in self.field_configurations:
                 table_details = self.get_table_details(table_id)
-                # 根据API文档，字段配置在fields属性中
                 self.field_configurations[table_id] = table_details.get("fields", [])
             return self.field_configurations[table_id]
         except Exception as e:
             print(f"获取字段配置时发生错误 (表格ID: {table_id}): {e}")
-            return []  # 返回空列表以避免进一步的错误
+            return []
     
     def get_table_items(self, table_id, limit=None, filter_conditions=None):
-        """获取表格中的项目，支持过滤和分页"""
-        endpoint = "item/list"
+        """获取表格中的项目"""
+        url = f"{API_BASE_URL}/item/list"
         payload = {
             "table_id": table_id
         }
         
-        # 添加分页限制（如果提供）
+        # 添加分页限制
         if limit is not None:
             payload["limit"] = limit
         
-        # 添加过滤条件（如果提供）
+        # 添加过滤条件
         if filter_conditions is not None:
             payload["filter"] = filter_conditions
         
-        return self.api_request(endpoint, payload)
+        return self.api_request("POST", url, payload)
+
+    def get_item_details(self, item_id):
+        """获取单个项目详情"""
+        url = f"{API_BASE_URL}/item/{item_id}"
+        return self.api_request("POST", url, {})
 
     def create_item(self, table_id, fields):
         """创建新的表格项目"""
-        endpoint = "item/create"
+        url = f"{API_BASE_URL}/item"  # 注意没有斜杠
         payload = {
             "table_id": table_id,
             "fields": fields
         }
-        return self.api_request(endpoint, payload)
+        return self.api_request("POST", url, payload)
 
     def update_item(self, item_id, fields):
         """更新已有的表格项目"""
-        endpoint = "item/update"
+        url = f"{API_BASE_URL}/item/{item_id}"
         payload = {
-            "item_id": item_id,
             "fields": fields
         }
-        return self.api_request(endpoint, payload)
+        return self.api_request("PUT", url, payload)  # 注意这里是PUT请求
 
 def get_field_mappings(huoban_api, table_id, field_mapping_names):
     """根据字段名称获取对应的字段ID"""
@@ -150,7 +164,6 @@ def get_field_mappings(huoban_api, table_id, field_mapping_names):
         return field_mappings
     except Exception as e:
         print(f"获取字段映射时发生错误 (表格ID: {table_id}): {e}")
-        # 添加更多错误信息
         import traceback
         traceback.print_exc()
         return {}
@@ -198,10 +211,7 @@ def get_all_students(huoban_api):
     return students
 
 def map_student_fields(item, field_mappings, table_type):
-    """
-    从原始数据项映射学生字段
-    使用动态获取的字段ID
-    """
+    """从原始数据项映射学生字段"""
     data = {}
     fields = item.get("fields", {})
     
@@ -231,10 +241,7 @@ def map_student_fields(item, field_mappings, table_type):
         return None
 
 def get_university_data(huoban_api):
-    """
-    从三个不同的大学表获取大学数据
-    返回格式化的大学数据，包括类型信息
-    """
+    """从三个不同的大学表获取大学数据"""
     university_data = {
         "private": [],
         "public_graduate": [],
@@ -282,10 +289,7 @@ def get_university_data(huoban_api):
     return university_data
 
 def map_university_fields(item, field_mappings):
-    """
-    从原始数据项映射大学字段
-    使用动态获取的字段ID
-    """
+    """从原始数据项映射大学字段"""
     data = {}
     fields = item.get("fields", {})
     
@@ -305,10 +309,7 @@ def map_university_fields(item, field_mappings):
         return None
     
 def get_international_school_data(huoban_api):
-    """
-    从国际学校表获取学校数据
-    返回格式化的国际学校数据列表
-    """
+    """从国际学校表获取学校数据"""
     schools = []
     
     # 为国际学校表定义字段映射
@@ -321,7 +322,7 @@ def get_international_school_data(huoban_api):
         "location": "地理位置",
         "school_type": "学校类型",
         "university_placement": "大学录取情况"
-        # 根据需要添加更多字段
+        # 根据表格后续可以添加更多字段
     }
     
     # 获取国际学校表的字段ID映射
@@ -338,10 +339,7 @@ def get_international_school_data(huoban_api):
     return schools
 
 def map_intl_school_fields(item, field_mappings):
-    """
-    从原始数据项映射国际学校字段
-    使用动态获取的字段ID
-    """
+    """从原始数据项映射国际学校字段"""
     data = {}
     fields = item.get("fields", {})
     
@@ -360,7 +358,6 @@ def map_intl_school_fields(item, field_mappings):
         data["school_id"] = item.get("item_id")
         
         # 处理特定字段（如有必要）
-        # 例如，确保学费为数值类型
         if "tuition_fees" in data and data["tuition_fees"] is not None:
             try:
                 data["tuition_fees"] = float(data["tuition_fees"])
@@ -374,9 +371,7 @@ def map_intl_school_fields(item, field_mappings):
         return None
     
 def update_match_result(huoban_api, result_entry):
-    """
-    检查是否已存在匹配结果，如果存在则更新，否则创建新记录
-    """
+    """检查是否已存在匹配结果，如果存在则更新，否则创建新记录"""
     # 提取匹配结果
     match_result = result_entry["match_result"]
     student_id = result_entry["student_id"]
@@ -431,12 +426,9 @@ def update_match_result(huoban_api, result_entry):
         print(f"更新或创建匹配结果时发生错误: {e}")
 
 def find_existing_match_result(huoban_api, student_id, student_id_field_id):
-    """
-    查找是否已存在该学生的匹配结果
-    返回找到的记录ID，如果未找到则返回None
-    """
+    """查找是否已存在该学生的匹配结果"""
     if not student_id_field_id:
-        print("无法获取学生ID字段的字段ID，无法搜索现有匹配结果")
+        print("无法获取学生ID字段的字段ID,无法搜索现有匹配结果")
         return None
     
     # 构建过滤条件
@@ -538,6 +530,21 @@ def check_all_tables():
     huoban_api = HuobanyunAPI(APP_SECRET)
     print("检查所有相关表格...")
     
+    # 首先尝试获取所有表格列表，以验证API连接正常
+    try:
+        print("\n尝试获取空间内所有表格...")
+        # 启用调试以查看详细请求和响应
+        url = f"{API_BASE_URL}/table/list"
+        payload = {"space_id": SPACE_ID}
+        tables_response = huoban_api.api_request("POST", url, payload, debug=True)
+        tables = tables_response.get("tables", [])
+        print(f"✅ 成功! 找到 {len(tables)} 个表格")
+        print("表格列表前5个:")
+        for i, table in enumerate(tables[:5]):
+            print(f"  {i+1}. {table.get('name', '未知')} (ID: {table.get('table_id', '未知')})")
+    except Exception as e:
+        print(f"❌ 获取表格列表失败: {e}")
+    
     # 要检查的表格ID列表
     tables_to_check = [
         {"id": STUDENT_TABLE_1_ID, "description": "学生资料统计 (STUDENT_TABLE_1_ID)"},
@@ -552,20 +559,22 @@ def check_all_tables():
     for table in tables_to_check:
         try:
             print(f"\n检查表格: {table['description']} (ID: {table['id']})")
-            details = huoban_api.get_table_details(table['id'])
+            # 启用调试以查看详细请求和响应
+            url = f"{API_BASE_URL}/table/{table['id']}"
+            details = huoban_api.api_request("POST", url, {}, debug=True)
             print(f"✅ 成功访问! 表名: {details.get('name', '未知')}")
             
             # 检查字段配置
             try:
-                fields = huoban_api.get_field_configurations(table['id'])
+                fields = details.get("fields", [])
                 print(f"   字段数量: {len(fields)}")
+                print("   前3个字段:")
+                for i, field in enumerate(fields[:3]):
+                    print(f"     - {field.get('name', '未知')} (类型: {field.get('type', '未知')})")
             except Exception as e:
                 print(f"   ⚠️ 获取字段配置失败: {e}")
         except Exception as e:
             print(f"❌ 访问失败: {e}")
-
-if __name__ == "__main__":
-    check_all_tables()
 
 def main():
     # 初始化API客户端
@@ -592,4 +601,12 @@ def main():
         return None
 
 if __name__ == "__main__":
+    # 添加调试输出
+    print(f"使用API基础URL: {API_BASE_URL}")
+    print(f"使用空间ID: {SPACE_ID}")
+    print(f"APP_SECRET 长度: {len(APP_SECRET)} 字符")
+    print(f"APP_SECRET 前5个字符: {APP_SECRET[:5]}...")
+    
+    check_all_tables()  # 首先进行表格检查
+    # 如果表格检查成功，取消注释运行匹配
     main()
