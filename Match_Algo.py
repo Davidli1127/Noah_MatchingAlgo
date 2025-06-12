@@ -22,7 +22,7 @@ def match_student(**kwargs):
     
     application_choice = kwargs.get('application_choice')
     
-    if application_choice == "大学":
+    if application_choice == "申请私立大学本科":
         university_result = match_universities(**kwargs)
         result.update(university_result)
     
