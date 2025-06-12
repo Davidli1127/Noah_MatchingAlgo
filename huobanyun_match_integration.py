@@ -97,10 +97,25 @@ class HuobanyunAPI:
         try:
             if table_id not in self.field_configurations:
                 table_details = self.get_table_details(table_id)
-                self.field_configurations[table_id] = table_details.get("fields", [])
+                # 修复：正确获取API响应中的字段信息
+                # 打印完整结构以便调试
+                print(f"表格 {table_id} 详情结构:")
+                print(json.dumps(table_details, indent=2, ensure_ascii=False)[:500] + "...")
+                
+                # 字段应该在 table.fields 路径下
+                if "table" in table_details and "fields" in table_details["table"]:
+                    self.field_configurations[table_id] = table_details["table"]["fields"]
+                    print(f"成功获取 {len(self.field_configurations[table_id])} 个字段")
+                else:
+                    print(f"警告:未在API响应中找到字段配置,返回路径: {list(table_details.keys())}")
+                    if "table" in table_details:
+                        print(f"table键包含: {list(table_details['table'].keys())}")
+                    self.field_configurations[table_id] = []
             return self.field_configurations[table_id]
         except Exception as e:
             print(f"获取字段配置时发生错误 (表格ID: {table_id}): {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     def get_table_items(self, table_id, limit=None, filter_conditions=None):
@@ -215,18 +230,35 @@ def map_student_fields(item, field_mappings, table_type):
     data = {}
     fields = item.get("fields", {})
     
-    # 必需的字段
-    required_fields = ["application_choice", "academic_percentage"]
-    
     try:
+        print(f"处理学生记录: {item.get('item_id')}")
+        print(f"字段映射: {field_mappings}")
+        print(f"可用字段: {list(fields.keys())}")
+        
         # 映射基本字段
         for key, field_id in field_mappings.items():
             if field_id in fields:
-                data[key] = fields[field_id]
+                field_value = fields[field_id]
+                
+                print(f"找到字段 '{key}' (ID: {field_id}) 值类型: {type(field_value)}")
+                
+                # 特殊处理选择类型字段
+                if isinstance(field_value, dict) and "text" in field_value:
+                    # 选择字段通常会包含 text 属性
+                    data[key] = field_value["text"]
+                    print(f"  处理选择字段: {field_value} -> {data[key]}")
+                elif isinstance(field_value, list) and len(field_value) > 0 and isinstance(field_value[0], dict):
+                    # 多选字段通常是字典列表
+                    names = [item.get("name", "") for item in field_value if "name" in item]
+                    data[key] = ", ".join(names) if names else ""
+                    print(f"  处理多选字段: {field_value} -> {data[key]}")
+                else:
+                    data[key] = field_value
         
         # 确保必需字段存在
+        required_fields = ["application_choice", "academic_percentage"]
         for field in required_fields:
-            if field not in data or data[field] is None:
+            if field not in data or not data[field]:  # 检查空字符串
                 print(f"学生记录缺少必需字段: {field}")
                 return None
         
@@ -234,10 +266,14 @@ def map_student_fields(item, field_mappings, table_type):
         data["student_id"] = item.get("item_id")
         data["table_id"] = STUDENT_TABLE_1_ID if table_type == 1 else STUDENT_TABLE_2_ID
         
+        # 输出最终映射结果
+        print(f"最终映射结果: {data}")
         return data
         
     except Exception as e:
         print(f"映射学生字段时出错: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def get_university_data(huoban_api):
@@ -370,65 +406,131 @@ def map_intl_school_fields(item, field_mappings):
         print(f"映射国际学校字段时出错: {e}")
         return None
     
+def get_student_name(huoban_api, student_id, table_id):
+    """获取学生姓名"""
+    try:
+        # 获取学生记录详情
+        student_item = huoban_api.get_item_details(student_id)
+        if not student_item:
+            print(f"无法获取学生ID为 {student_id} 的详情")
+            return None
+        
+        # 获取表格字段配置
+        fields = huoban_api.get_field_configurations(table_id)
+        name_field = next((f for f in fields if f.get("name") == "学生姓名"), None)
+        
+        if not name_field:
+            print(f"表格 {table_id} 中没有找到学生姓名字段")
+            return None
+        
+        name_field_id = name_field.get("field_id")
+        if not name_field_id or name_field_id not in student_item.get("fields", {}):
+            print(f"学生记录中没有姓名字段 {name_field_id}")
+            return None
+        
+        student_name = student_item["fields"][name_field_id]
+        return student_name
+        
+    except Exception as e:
+        print(f"获取学生姓名时出错: {e}")
+        return None
+    
 def update_match_result(huoban_api, result_entry):
     """检查是否已存在匹配结果，如果存在则更新，否则创建新记录"""
-    # 提取匹配结果
+    # 提取匹配结果和学生信息
     match_result = result_entry["match_result"]
     student_id = result_entry["student_id"]
     
-    # 获取结果表的字段配置
+    print(f"\n=== 更新匹配结果 ===")
+    print(f"学生ID: {student_id}")
+    print(f"匹配结果: {match_result}")
+    
+    # 先获取学生姓名
+    student_name = get_student_name(huoban_api, student_id, result_entry["student_table_id"])
+    
+    # 修改为匹配实际表格的字段名
     field_mapping_names = {
-        "student_id": "学生ID",
-        "student_table_id": "学生表格ID",
-        "matched_universities": "匹配大学",
-        "path_to_university": "入学路径",
-        "matched_international_schools": "匹配国际学校",
-        "last_updated": "最后更新时间"  # 添加更新时间字段
+        "student_name": "学生姓名",  # 对应学生姓名字段
+        "matched_schools": "配对学校名称"  # 对应配对学校名称字段
     }
     
+    # 获取结果表的字段配置
     field_mappings = get_field_mappings(huoban_api, MATCH_RESULT_TABLE_ID, field_mapping_names)
+    print(f"字段映射结果: {field_mappings}")
     
     # 准备要保存的数据
     fields = {}
     
-    # 使用动态字段ID
-    if "student_id" in field_mappings:
-        fields[field_mappings["student_id"]] = student_id
-    if "student_table_id" in field_mappings:
-        fields[field_mappings["student_table_id"]] = result_entry["student_table_id"]
-    if "last_updated" in field_mappings:
-        # 添加当前时间作为更新时间
-        fields[field_mappings["last_updated"]] = time.strftime("%Y-%m-%d %H:%M:%S")
+    # 添加学生姓名
+    if "student_name" in field_mappings and student_name:
+        fields[field_mappings["student_name"]] = student_name
     
-    # 根据申请类型添加匹配结果
-    if "matched_universities" in match_result and "matched_universities" in field_mappings:
-        fields[field_mappings["matched_universities"]] = ", ".join(match_result["matched_universities"])
-        if "path_to_university" in match_result and "path_to_university" in field_mappings:
-            fields[field_mappings["path_to_university"]] = match_result["path_to_university"]
+    # 提取匹配结果并合并到一个字段中
+    matched_schools = []
     
-    elif "matched_international_schools" in match_result and "matched_international_schools" in field_mappings:
-        fields[field_mappings["matched_international_schools"]] = ", ".join(match_result["matched_international_schools"])
+    # 如果有匹配大学，添加到学校列表
+    if "matched_universities" in match_result:
+        universities = match_result["matched_universities"]
+        if universities:  # 确保不是空列表
+            path = match_result.get("path_to_university", "")
+            if path:
+                matched_schools.append(f"大学匹配: {', '.join(universities)} - 路径: {path}")
+            else:
+                matched_schools.append(f"大学匹配: {', '.join(universities)}")
     
-    # 检查是否存在该学生的匹配结果
-    existing_item_id = find_existing_match_result(huoban_api, student_id, field_mappings.get("student_id"))
+    # 如果有匹配国际学校，添加到学校列表
+    if "matched_international_schools" in match_result:
+        schools = match_result["matched_international_schools"]
+        if schools:  # 确保不是空列表
+            matched_schools.append(f"国际学校匹配: {', '.join(schools)}")
+    
+    # 将所有匹配结果合并为一个字符串
+    if matched_schools:
+        match_text = "\n".join(matched_schools)
+    else:
+        match_text = "未找到匹配结果"
+    
+    # 添加匹配结果到配对学校名称字段
+    if "matched_schools" in field_mappings:
+        fields[field_mappings["matched_schools"]] = match_text
+    
+    print(f"要保存的字段: {fields}")
+    
+    # 如果没有任何字段匹配，添加默认字段避免API错误
+    if not fields:
+        print("警告: 没有任何字段匹配，添加学生姓名作为默认字段")
+        # 获取学生姓名字段ID
+        field_configs = huoban_api.get_field_configurations(MATCH_RESULT_TABLE_ID)
+        for field in field_configs:
+            if field.get("name") == "学生姓名":
+                fields[field.get("field_id")] = student_name or "未知学生"
+                break
+    
+    # 检查是否存在该学生的匹配结果 (基于学生姓名字段)
+    student_name_field_id = field_mappings.get("student_name")
+    existing_item_id = find_existing_match_result(huoban_api, student_name, student_name_field_id) if student_name_field_id else None
     
     try:
         if existing_item_id:
             # 如果存在，则更新记录
-            huoban_api.update_item(existing_item_id, fields)
-            print(f"已更新学生 {student_id} 的匹配结果")
+            print(f"更新现有记录 {existing_item_id}")
+            result = huoban_api.update_item(existing_item_id, fields)
+            print(f"已更新学生 {student_name} 的匹配结果")
         else:
             # 如果不存在，则创建新记录
-            huoban_api.create_item(MATCH_RESULT_TABLE_ID, fields)
-            print(f"已为学生 {student_id} 创建新的匹配结果")
+            print(f"创建新记录")
+            result = huoban_api.create_item(MATCH_RESULT_TABLE_ID, fields)
+            print(f"已为学生 {student_name or student_id} 创建新的匹配结果")
         
     except Exception as e:
         print(f"更新或创建匹配结果时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
 
-def find_existing_match_result(huoban_api, student_id, student_id_field_id):
-    """查找是否已存在该学生的匹配结果"""
-    if not student_id_field_id:
-        print("无法获取学生ID字段的字段ID,无法搜索现有匹配结果")
+def find_existing_match_result(huoban_api, student_name, student_name_field_id):
+    """根据学生姓名查找是否已存在匹配结果"""
+    if not student_name_field_id or not student_name:
+        print("缺少学生姓名或字段ID,无法搜索现有匹配结果")
         return None
     
     # 构建过滤条件
@@ -436,9 +538,9 @@ def find_existing_match_result(huoban_api, student_id, student_id_field_id):
         "conjunction": "and",
         "conditions": [
             {
-                "field_id": student_id_field_id,
+                "field_id": student_name_field_id,
                 "operator": "eq", 
-                "values": [student_id]
+                "values": [student_name]
             }
         ]
     }
@@ -460,7 +562,7 @@ def find_existing_match_result(huoban_api, student_id, student_id_field_id):
     except Exception as e:
         print(f"查找现有匹配结果时发生错误: {e}")
         return None
-
+    
 def match_all_students(huoban_api, students):
     """为所有学生执行匹配"""
     results = []
@@ -608,5 +710,5 @@ if __name__ == "__main__":
     print(f"APP_SECRET 前5个字符: {APP_SECRET[:5]}...")
     
     check_all_tables()  # 首先进行表格检查
-    # 如果表格检查成功，取消注释运行匹配
+    # 如果表格检查成功，可以取消下面的注释来运行匹配
     main()
