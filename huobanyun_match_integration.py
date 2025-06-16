@@ -3,7 +3,7 @@ import json
 import time
 from Match_Algo import match_student
 
-# Huobanyun API Configuration
+#API Configuration
 API_BASE_URL = "https://api.huoban.com/openapi/v1"
 APP_SECRET = "wPCoGnaYtQrNXoWv3I0VOrKnYQpOU8XNSyr5OzuJ"  # API密钥
 SPACE_ID = "4000000007763686"  # 空间ID
@@ -147,7 +147,15 @@ class HuobanyunAPI:
             "table_id": table_id,
             "fields": fields
         }
-        return self.api_request("POST", url, payload)
+        # 启用调试输出来查看请求和响应细节
+        result = self.api_request("POST", url, payload, debug=True)
+        # 检查返回结果是否成功
+        if result and "item" in result and "item_id" in result["item"]:
+            print(f"创建成功, 记录ID: {result['item']['item_id']}")
+            return result["item"]
+        else:
+            print(f"创建记录返回异常结构: {result}")
+            return None
 
     def update_item(self, item_id, fields):
         """更新已有的表格项目"""
@@ -155,7 +163,14 @@ class HuobanyunAPI:
         payload = {
             "fields": fields
         }
-        return self.api_request("PUT", url, payload)  # 注意这里是PUT请求
+        # 启用调试输出来查看请求和响应细节
+        result = self.api_request("PUT", url, payload, debug=True)
+        if result and "item" in result:
+            print(f"更新成功, 记录ID: {item_id}")
+            return result["item"]
+        else:
+            print(f"更新记录返回异常结构: {result}")
+            return None
 
 def get_field_mappings(huoban_api, table_id, field_mapping_names):
     """根据字段名称获取对应的字段ID"""
@@ -189,6 +204,7 @@ def get_all_students(huoban_api):
     
     # 字段名称映射 - 这些是实际的字段名称，将用于查询字段ID
     field_mapping_names = {
+        "student_name": "学生姓名",  # 添加学生姓名字段
         "application_choice": "申请类型",
         "academic_percentage": "学术成绩",
         "gaokao_score": "高考成绩",
@@ -257,10 +273,16 @@ def map_student_fields(item, field_mappings, table_type):
         
         # 确保必需字段存在
         required_fields = ["application_choice", "academic_percentage"]
-        for field in required_fields:
-            if field not in data or not data[field]:  # 检查空字符串
-                print(f"学生记录缺少必需字段: {field}")
-                return None
+        missing_fields = [field for field in required_fields if field not in data or not data[field]]
+        if missing_fields:
+            print(f"学生记录缺少必需字段: {', '.join(missing_fields)}")
+            # 不直接返回None，而是将必需字段设置为默认值
+            for field in missing_fields:
+                if field == "application_choice":
+                    data[field] = "本科"  # 默认为本科
+                elif field == "academic_percentage":
+                    data[field] = "60"    # 默认为60%
+                print(f"为缺失字段 {field} 设置默认值: {data[field]}")
         
         # 添加学生ID以便之后更新匹配结果
         data["student_id"] = item.get("item_id")
@@ -429,24 +451,68 @@ def get_student_name(huoban_api, student_id, table_id):
             return None
         
         student_name = student_item["fields"][name_field_id]
+        print(f"成功获取学生姓名: {student_name}")
         return student_name
         
     except Exception as e:
         print(f"获取学生姓名时出错: {e}")
+        import traceback
+        traceback.print_exc()
         return None
+
+def get_all_existing_matches(huoban_api):
+    """获取匹配结果表中已有的所有匹配记录"""
+    try:
+        # 获取字段映射
+        field_mapping_names = {"student_name": "学生姓名"}
+        field_mappings = get_field_mappings(huoban_api, MATCH_RESULT_TABLE_ID, field_mapping_names)
+        
+        if "student_name" not in field_mappings:
+            print("错误: 无法在匹配结果表中找到学生姓名字段")
+            return {}
+        
+        student_name_field_id = field_mappings["student_name"]
+        
+        # 获取所有匹配结果
+        results = huoban_api.get_table_items(MATCH_RESULT_TABLE_ID, limit=100)  # 设置一个较大的限制以获取所有记录
+        existing_matches = {}
+        
+        for item in results.get("items", []):
+            if student_name_field_id in item.get("fields", {}):
+                student_name = item["fields"][student_name_field_id]
+                if student_name:  # 确保学生姓名不为空
+                    existing_matches[student_name] = item["item_id"]
+        
+        print(f"已从匹配结果表中获取 {len(existing_matches)} 条现有记录")
+        return existing_matches
     
-def update_match_result(huoban_api, result_entry):
+    except Exception as e:
+        print(f"获取现有匹配记录时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return {}
+
+def update_match_result(huoban_api, result_entry, existing_matches):
     """检查是否已存在匹配结果，如果存在则更新，否则创建新记录"""
     # 提取匹配结果和学生信息
     match_result = result_entry["match_result"]
     student_id = result_entry["student_id"]
+    student_name = result_entry.get("student_name")  # 直接从传入的结果条目获取学生姓名
     
     print(f"\n=== 更新匹配结果 ===")
     print(f"学生ID: {student_id}")
+    print(f"学生姓名: {student_name}")
     print(f"匹配结果: {match_result}")
     
-    # 先获取学生姓名
-    student_name = get_student_name(huoban_api, student_id, result_entry["student_table_id"])
+    # 如果没有提供学生姓名，尝试获取
+    if not student_name:
+        student_name = get_student_name(huoban_api, student_id, result_entry["student_table_id"])
+        print(f"通过API获取到的学生姓名: {student_name}")
+    
+    # 如果学生姓名仍为空，则使用学生ID作为标识符
+    if not student_name:
+        student_name = f"学生ID: {student_id}"
+        print(f"无法获取学生姓名，使用ID作为替代: {student_name}")
     
     # 修改为匹配实际表格的字段名
     field_mapping_names = {
@@ -506,66 +572,44 @@ def update_match_result(huoban_api, result_entry):
                 fields[field.get("field_id")] = student_name or "未知学生"
                 break
     
-    # 检查是否存在该学生的匹配结果 (基于学生姓名字段)
-    student_name_field_id = field_mappings.get("student_name")
-    existing_item_id = find_existing_match_result(huoban_api, student_name, student_name_field_id) if student_name_field_id else None
+    # 从预先加载的匹配记录中查找是否已存在该学生
+    existing_item_id = None
+    if student_name in existing_matches:
+        existing_item_id = existing_matches[student_name]
+        print(f"在预加载数据中找到现有记录 (ID: {existing_item_id})")
     
     try:
         if existing_item_id:
             # 如果存在，则更新记录
             print(f"更新现有记录 {existing_item_id}")
             result = huoban_api.update_item(existing_item_id, fields)
-            print(f"已更新学生 {student_name} 的匹配结果")
+            if result:
+                print(f"已更新学生 {student_name} 的匹配结果")
         else:
             # 如果不存在，则创建新记录
             print(f"创建新记录")
             result = huoban_api.create_item(MATCH_RESULT_TABLE_ID, fields)
-            print(f"已为学生 {student_name or student_id} 创建新的匹配结果")
-        
+            if result:
+                print(f"已为学生 {student_name} 创建新的匹配结果")
+                # 将新创建的记录加入到现有匹配记录字典中
+                if "item_id" in result:
+                    existing_matches[student_name] = result["item_id"]
+    
     except Exception as e:
         print(f"更新或创建匹配结果时发生错误: {e}")
         import traceback
         traceback.print_exc()
 
-def find_existing_match_result(huoban_api, student_name, student_name_field_id):
-    """根据学生姓名查找是否已存在匹配结果"""
-    if not student_name_field_id or not student_name:
-        print("缺少学生姓名或字段ID,无法搜索现有匹配结果")
-        return None
-    
-    # 构建过滤条件
-    filter_conditions = {
-        "conjunction": "and",
-        "conditions": [
-            {
-                "field_id": student_name_field_id,
-                "operator": "eq", 
-                "values": [student_name]
-            }
-        ]
-    }
-    
-    try:
-        # 使用API搜索记录
-        results = huoban_api.get_table_items(
-            MATCH_RESULT_TABLE_ID, 
-            limit=1,  # 我们只需要一条记录
-            filter_conditions=filter_conditions
-        )
-        
-        # 检查是否找到记录
-        if results.get("items") and len(results["items"]) > 0:
-            return results["items"][0]["item_id"]
-        
-        return None
-        
-    except Exception as e:
-        print(f"查找现有匹配结果时发生错误: {e}")
-        return None
-    
-def match_all_students(huoban_api, students):
+def match_all_students(huoban_api):
     """为所有学生执行匹配"""
     results = []
+    
+    # 获取学生数据
+    students = get_all_students(huoban_api)
+    print(f"共获取 {len(students)} 名学生记录")
+    
+    # 首先获取所有现有匹配记录，以避免重复
+    existing_matches = get_all_existing_matches(huoban_api)
     
     # 获取大学数据，只需获取一次
     university_data = get_university_data(huoban_api)
@@ -574,6 +618,16 @@ def match_all_students(huoban_api, students):
     international_schools = get_international_school_data(huoban_api)
     
     for student in students:
+        # 确保学生姓名已获取
+        if "student_name" not in student:
+            student_name = get_student_name(huoban_api, student["student_id"], student["table_id"])
+            if student_name:
+                student["student_name"] = student_name
+                print(f"已获取学生姓名: {student_name}")
+            else:
+                print(f"警告: 无法获取学生ID为 {student['student_id']} 的姓名")
+                student["student_name"] = f"学生ID: {student['student_id']}"
+    
         # 创建用于匹配的参数字典
         match_params = {
             'application_choice': student.get('application_choice'),
@@ -588,6 +642,33 @@ def match_all_students(huoban_api, students):
             'budget_per_year': student.get('budget_per_year', 0),
             'international_schools': international_schools  # 添加国际学校数据
         }
+        
+        # 转换数值型数据
+        if 'academic_percentage' in match_params and match_params['academic_percentage']:
+            try:
+                # 处理百分比格式
+                percentage_str = str(match_params['academic_percentage']).replace('%', '')
+                match_params['academic_percentage'] = float(percentage_str)
+                print(f"转换后的值: academic_percentage={match_params['academic_percentage']}", end='')
+            except (ValueError, TypeError):
+                print(f"警告: 无法转换学术成绩 '{match_params['academic_percentage']}' 为数字")
+                
+        if 'gaokao_score' in match_params and match_params['gaokao_score']:
+            try:
+                match_params['gaokao_score'] = float(match_params['gaokao_score'])
+                print(f", gaokao_score={match_params['gaokao_score']}")
+            except (ValueError, TypeError):
+                print(f"警告: 无法转换高考成绩 '{match_params['gaokao_score']}' 为数字")
+        else:
+            print()
+            
+        for score_type in ['ielts_score', 'toefl_score', 'det_score']:
+            if score_type in match_params and match_params[score_type]:
+                try:
+                    match_params[score_type] = float(match_params[score_type])
+                except (ValueError, TypeError):
+                    print(f"警告: 无法转换 {score_type} '{match_params[score_type]}' 为数字")
+        print(f"转换后的值: ielts_score={match_params.get('ielts_score')}, toefl_score={match_params.get('toefl_score')}, det_score={match_params.get('det_score')}")
         
         # 根据申请类型选择合适的大学数据集
         application_type = student.get('application_choice', '').lower()
@@ -617,11 +698,12 @@ def match_all_students(huoban_api, students):
         result_entry = {
             "student_id": student["student_id"],
             "student_table_id": student["table_id"],
+            "student_name": student.get("student_name"),  # 直接从学生数据中获取姓名
             "match_result": match_result
         }
         
         # 使用新函数更新或创建匹配结果
-        update_match_result(huoban_api, result_entry)
+        update_match_result(huoban_api, result_entry, existing_matches)
         
         results.append(result_entry)
     
@@ -678,6 +760,63 @@ def check_all_tables():
         except Exception as e:
             print(f"❌ 访问失败: {e}")
 
+def cleanup_duplicate_records(huoban_api):
+    """清理匹配结果表中的重复记录"""
+    try:
+        print("\n=== 清理匹配结果表中的重复记录 ===")
+        # 获取字段映射
+        field_mapping_names = {"student_name": "学生姓名"}
+        field_mappings = get_field_mappings(huoban_api, MATCH_RESULT_TABLE_ID, field_mapping_names)
+        
+        if "student_name" not in field_mappings:
+            print("错误: 无法在匹配结果表中找到学生姓名字段")
+            return
+        
+        student_name_field_id = field_mappings["student_name"]
+        
+        # 获取所有匹配结果
+        results = huoban_api.get_table_items(MATCH_RESULT_TABLE_ID, limit=100)
+        
+        # 收集按学生姓名分组的记录
+        student_records = {}
+        
+        for item in results.get("items", []):
+            if student_name_field_id in item.get("fields", {}):
+                student_name = item["fields"][student_name_field_id]
+                if student_name:  # 确保学生姓名不为空
+                    if student_name not in student_records:
+                        student_records[student_name] = []
+                    student_records[student_name].append(item)
+        
+        # 查找并处理重复记录
+        duplicates_found = False
+        
+        for student_name, records in student_records.items():
+            if len(records) > 1:
+                duplicates_found = True
+                print(f"发现学生 '{student_name}' 有 {len(records)} 条重复记录")
+                
+                # 按更新时间排序，保留最新的一条
+                sorted_records = sorted(records, key=lambda x: x.get("updated_on", ""), reverse=True)
+                
+                keep_record = sorted_records[0]
+                delete_records = sorted_records[1:]
+                
+                print(f"保留最新记录 (ID: {keep_record['item_id']}, 更新时间: {keep_record.get('updated_on')})")
+                
+                # TODO: 目前API不支持删除操作，可以考虑将重复记录标记为"重复"
+                for record in delete_records:
+                    print(f"应删除重复记录 (ID: {record['item_id']}, 更新时间: {record.get('updated_on')})")
+                    # 如果API支持删除操作，可以在这里添加删除代码
+        
+        if not duplicates_found:
+            print("没有发现重复记录，无需清理")
+        
+    except Exception as e:
+        print(f"清理重复记录时发生错误: {e}")
+        import traceback
+        traceback.print_exc()
+
 def main():
     # 初始化API客户端
     huoban_api = HuobanyunAPI(APP_SECRET)
@@ -685,13 +824,12 @@ def main():
     try:
         print("开始执行学生匹配流程...")
         
-        # 获取学生数据
-        students = get_all_students(huoban_api)
-        print(f"共获取 {len(students)} 名学生记录")
-        
-        # 执行匹配
-        match_results = match_all_students(huoban_api, students)
+        # 执行匹配 (内部会获取学生数据)
+        match_results = match_all_students(huoban_api)
         print(f"已完成 {len(match_results)} 名学生的匹配")
+        
+        # 清理匹配结果表中的重复记录
+        cleanup_duplicate_records(huoban_api)
         
         print("匹配流程执行完成！")
         return match_results
@@ -710,5 +848,4 @@ if __name__ == "__main__":
     print(f"APP_SECRET 前5个字符: {APP_SECRET[:5]}...")
     
     check_all_tables()  # 首先进行表格检查
-    # 如果表格检查成功，可以取消下面的注释来运行匹配
     main()
