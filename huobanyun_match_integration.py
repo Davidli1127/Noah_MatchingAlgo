@@ -93,11 +93,9 @@ class HuobanyunAPI:
         return self.api_request("POST", url, {})
     
     def get_field_configurations(self, table_id):
-        """获取并缓存表格的字段配置"""
         try:
             if table_id not in self.field_configurations:
                 table_details = self.get_table_details(table_id)
-                # 修复：正确获取API响应中的字段信息
                 # 打印完整结构以便调试
                 print(f"表格 {table_id} 详情结构:")
                 print(json.dumps(table_details, indent=2, ensure_ascii=False)[:500] + "...")
@@ -142,7 +140,7 @@ class HuobanyunAPI:
 
     def create_item(self, table_id, fields):
         """创建新的表格项目"""
-        url = f"{API_BASE_URL}/item"  # 注意没有斜杠
+        url = f"{API_BASE_URL}/item" 
         payload = {
             "table_id": table_id,
             "fields": fields
